@@ -1,0 +1,132 @@
+#!/bin/bash
+
+# Author: Tommaso Barberis
+# Date: 17/64/2022
+# Description: script to determine if the sequence is palindromic
+# TODOs:
+
+# dependancies:
+# - blastn
+
+# for more information:
+# https://github.com/TommasoBarberis/palindromic
+
+
+function usage()
+{
+   cat << DOC
+    developer: tommasobarberis98@gmail.com
+    for more information: https://github.com/TommasoBarberis/palindromic
+
+   #######################################
+   
+   palindromic is a program to find if a sequence is a palindrome.
+   Full Documentation: link repo github
+                                      
+   #######################################
+   
+   Usage: palindromic [-i|--input <seq.fasta>] [options]
+   mendatory arguments:
+    
+    -i, --input                     fasta file
+   optional arguments:
+    
+    -h, --help                      Show this help message and exit
+
+    #######################################
+    
+    Dependancies:
+        - blastn
+
+DOC
+} 
+
+# if no parameter given, output help and qui
+if [[ $# -eq 0 ]] ; then
+    usage
+    echo '   ##################################'
+    echo '   ERROR! No mendatory argument given'
+    echo '   ##################################'
+    exit 0
+fi
+
+# defaults parameters
+
+
+# parse of parameteres
+ARGS=""
+
+while [[ $# -gt 0 ]]; do
+	case $1 in
+		-i|--input)
+            FASTAFILE=$2
+            shift 2
+            ;;
+        -h | --help)
+	        usage
+	        exit 1
+	        ;;
+		-*|--*)
+			echo "Unknown option $1"
+			exit 1
+			;;
+		*)
+			ARGS+=("$1")
+			shift
+			;;
+	esac
+done
+
+
+#####################################################
+
+# check for mandatory arguments
+FASTAFILE=$(realpath $FASTAFILE 2> /dev/null) || {
+    usage; 
+    echo "  ERROR! No TE fasta file found.";
+    exit 1; 
+}
+
+#####################################################
+
+quit=false
+
+## dependencies check
+dependencies=(blastn)
+for dep in ${dependencies[@]}; do
+	if command -v $dep > /dev/null 2>&1; then
+		true
+	else
+		echo -e "$dep not found!"
+		quit=true
+	fi
+done
+
+if $quit; then
+    echo quit
+    exit 1
+fi
+
+#####################################################
+
+## Main section
+
+while read -r header; do
+    read -r sequence
+    
+    # create tmp file with only one sequence
+    seq_name=`echo $header | cut -f2 -d">"`
+    echo -e "$header\n$sequence" > $seq_name.fa
+    mkdir ${seq_name}_db
+    
+    # run self-blastn
+    makeblastdb -in $seq_name.fa -out ${seq_name}_db/${seq_name}.db -dbtype 'nucl'
+    blastn -query $seq_name.fa -db ${seq_name}_db/${seq_name}.db -evalue 0.05 \
+        -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sstrand" \
+        -word_size 11 -gapopen 5 -gapextend 2 -reward 2 -penalty -3 > blast.o
+    
+    rm -r ${seq_name}.fa ${seq_name}_db
+
+    exit 1
+
+done < $FASTAFILE
