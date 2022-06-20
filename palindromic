@@ -111,22 +111,54 @@ fi
 
 ## Main section
 
+
+# check if a results file already exists, else it initalize it
+if [[ -f $FASTAFILE.pal ]]; then
+    echo "A results file ('$FASTAFILE.pal') already exists, exit ..."
+    exit 1
+else
+    touch $FASTAFILE.pal
+fi
+
+
 while read -r header; do
     read -r sequence
     
+    # bool variable
+    palindromic=false
+
     # create tmp file with only one sequence
     seq_name=`echo $header | cut -f2 -d">"`
     echo -e "$header\n$sequence" > $seq_name.fa
     mkdir ${seq_name}_db
     
+    seq_len=$(( $(echo $sequence | wc -c)-1 ))
+
     # run self-blastn
     makeblastdb -in $seq_name.fa -out ${seq_name}_db/${seq_name}.db -dbtype 'nucl'
     blastn -query $seq_name.fa -db ${seq_name}_db/${seq_name}.db -evalue 0.05 \
         -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sstrand" \
         -word_size 11 -gapopen 5 -gapextend 2 -reward 2 -penalty -3 > blast.o
-    
-    rm -r ${seq_name}.fa ${seq_name}_db
 
-    exit 1
+    # verify if the sequence is palindrome
+    awk '{if ($12>150) print}' blast.o > blast.o.filtered # a minimum bitscore of 150 is required
+    grep -v "plus" blast.o.filtered > tmp && mv tmp blast.o.filtered # conserve only inverted sequences
+    while read -r hit; do
+
+        pident=$(echo $hit | cut -f3 -d" ")
+        len=$(echo $hit | cut -f4 -d" ")
+        
+        if (( $(echo "$pident > 70" |bc -l) )) && (( $(echo "$len > 0.5*$seq_len" |bc -l) )); then 
+            palindromic=true
+        fi
+
+    done < blast.o.filtered
+
+    if $palindromic; then
+        echo $seq_name >> $FASTAFILE.pal
+    fi
+
+    
+    rm -r ${seq_name}.fa ${seq_name}_db blast.o blast.o.filtered
 
 done < $FASTAFILE
